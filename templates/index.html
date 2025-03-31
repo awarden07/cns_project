@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Web Application Vulnerability Scanner</title>
+</head>
+<body>
+    <h2>Enter a Website URL to Scan</h2>
+    <form method="POST">
+        <input type="text" name="url" placeholder="Enter a website URL">
+        <button type="submit">Scan</button>
+    </form>
+
+    {% if results %}
+        <h3>Scan Results for {{ url }}</h3>
+        <ul>
+            {% for result in results %}
+                <li>{{ result }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+</body>
+</html>
