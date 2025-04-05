@@ -1,18 +1,17 @@
 import requests
 
 def check_security_headers(url):
-    """Checks if important security headers are present."""
+    """Checks important security headers and server info leakage."""
     try:
         # Force HTTPS
         if not url.startswith("https://"):
             url = "https://" + url.lstrip("http://")
 
-        # Use session for consistent requests
         session = requests.Session()
         response = session.get(url, timeout=5, allow_redirects=True)
         headers = response.headers
 
-        # Known security headers
+        # Known important security headers
         security_headers = {
             "Strict-Transport-Security": "HSTS (Enforces HTTPS)",
             "X-Frame-Options": "Prevents Clickjacking",
@@ -22,6 +21,7 @@ def check_security_headers(url):
 
         results = [f"[+] Final URL after redirects: {response.url}"]
 
+        # Check important security headers
         for header, description in security_headers.items():
             if header in headers:
                 results.append(f"[+] {header} is correctly implemented.")
@@ -33,6 +33,14 @@ def check_security_headers(url):
             preload_check = requests.get(f"https://hstspreload.org/api/v2/status?domain={url.split('//')[1].split('/')[0]}")
             if preload_check.status_code == 200 and '"status":"preloaded"' in preload_check.text:
                 results.append("[+] HSTS is preloaded in browsers.")
+
+        # Server Information Leakage Detection
+        info_leakage_headers = ["Server", "X-Powered-By", "Via", "X-AspNet-Version"]
+
+        for leak_header in info_leakage_headers:
+            if leak_header in headers:
+                leakage = headers[leak_header]
+                results.append(f"[!] Server Information Leakage Detected: {leak_header}: {leakage}")
 
         return results
 
