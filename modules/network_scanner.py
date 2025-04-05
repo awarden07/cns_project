@@ -14,6 +14,21 @@ def scan_open_ports(host):
         sock.close()
     return open_ports
 
+def grab_banner(host, port):
+    """Attempts to grab a service banner from an open port."""
+    try:
+        sock = socket.socket()
+        sock.settimeout(2)
+        sock.connect((host, port))
+        banner = sock.recv(1024).decode(errors="ignore").strip()
+        sock.close()
+        if banner:
+            return f"[+] Banner for {host}:{port} -> {banner}"
+        else:
+            return f"[!] No banner detected for {host}:{port}"
+    except Exception:
+        return f"[!] Unable to grab banner for {host}:{port}"
+
 def get_http_methods(url):
     try:
         methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"]
@@ -25,7 +40,21 @@ def get_http_methods(url):
 def network_scan(url):
     results = []
     host = url.replace("http://", "").replace("https://", "").split("/")[0]
+    
     open_ports = scan_open_ports(host)
-    results.append(f"[+] Open Ports: {', '.join(map(str, open_ports))}" if open_ports else "[!] No common open ports detected.")
-    results.append(f"[+] Allowed HTTP Methods: {', '.join(get_http_methods(url))}")
+    
+    if open_ports:
+        results.append(f"[+] Open Ports: {', '.join(map(str, open_ports))}")
+        
+        # Grab banners for open ports
+        for port in open_ports:
+            banner_result = grab_banner(host, port)
+            results.append(banner_result)
+    else:
+        results.append("[!] No common open ports detected.")
+
+    # HTTP Methods check
+    allowed_methods = get_http_methods(url)
+    results.append(f"[+] Allowed HTTP Methods: {', '.join(allowed_methods)}")
+
     return results
