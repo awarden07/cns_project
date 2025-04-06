@@ -27,10 +27,22 @@ def check_heartbleed(host, port=443):
         conn.connect((host, port))
         vulnerable, leaked_data = send_heartbeat(conn)
         conn.close()
+
         if vulnerable:
-            results.append(f"[!] Vulnerable to Heartbleed! Memory leak detected ({len(leaked_data)} bytes).")
+            results.append({
+                "issue": f"Vulnerable to Heartbleed! Memory leak detected ({len(leaked_data)} bytes).",
+                "severity": "High"
+            })
         else:
-            results.append("[+] Not vulnerable to Heartbleed. Server properly rejects heartbeat requests.")
+            results.append({
+                "issue": "Not vulnerable to Heartbleed. Server properly rejects malformed heartbeat requests.",
+                "severity": "Low"
+            })
+
     except (socket.timeout, socket.error, ssl.SSLError) as e:
-        results.append(f"[+] No Heartbleed vulnerability detected. Error: {e}")
+        results.append({
+            "issue": f"Could not confirm Heartbleed vulnerability. Error: {e}",
+            "severity": "Low"
+        })
+
     return results
