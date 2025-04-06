@@ -2,7 +2,6 @@ import requests
 import urllib.parse
 import re
 
-# Expanded XSS Payloads (Encoded, Unencoded, and Obfuscated)
 XSS_PAYLOADS = [
     "<script>alert('XSS')</script>",
     "\" onmouseover=\"alert('XSS')",
@@ -30,8 +29,9 @@ def detect_reflected_xss(url):
         if not input_names:
             input_names = ["query", "search", "input"]
     except requests.exceptions.RequestException:
-        return ["[!] Error: Unable to retrieve form inputs. Using default test parameter."]
+        return [{"issue": "Error: Unable to retrieve form inputs. Using default test parameter.", "severity": "Low"}]
 
+    found = False
     for payload in XSS_PAYLOADS:
         encoded_payload = urllib.parse.quote(payload)
         for param in input_names:
@@ -42,41 +42,67 @@ def detect_reflected_xss(url):
                 if (payload.lower() in response_text or 
                     urllib.parse.unquote(payload).lower() in response_text or
                     payload.replace("<", "&lt;").replace(">", "&gt;") in response_text):
-                    results.append(f"[!] Reflected XSS detected via `{param}` with payload: {payload}")
+                    results.append({
+                        "issue": f"Reflected XSS detected via `{param}` with payload: {payload}",
+                        "severity": "High"
+                    })
+                    found = True
             except requests.exceptions.RequestException:
                 continue
-    if not results:
-        results.append("[+] No reflected XSS detected.")
+
+    if not found:
+        results.append({
+            "issue": "No reflected XSS detected.",
+            "severity": "Low"
+        })
+
     return results
 
 def detect_stored_xss(url):
     """Tests for Stored XSS by submitting payloads and checking if they persist."""
     results = []
+    found = False
+
     for payload in XSS_PAYLOADS:
         data = {"comment": payload}
         try:
             requests.post(url, data=data, timeout=10)
             response = requests.get(url, timeout=10)
             if payload.lower() in response.text.lower():
-                results.append(f"[!] Stored XSS detected with payload: {payload}")
+                results.append({
+                    "issue": f"Stored XSS detected with payload: {payload}",
+                    "severity": "High"
+                })
+                found = True
         except requests.exceptions.RequestException:
             continue
-    if not results:
-        results.append("[+] No stored XSS detected.")
+
+    if not found:
+        results.append({
+            "issue": "No stored XSS detected.",
+            "severity": "Low"
+        })
+
     return results
 
 def detect_dom_xss(url):
     """Tests for DOM-Based XSS by injecting payloads and checking for dangerous JS sinks."""
     results = []
+    found = False
+
     try:
         response = requests.get(url, timeout=10)
         response_text = response.text.lower()
         dom_sinks = ["document.write", "eval", "innerhtml", "settimeout", "setinterval", "location.href"]
         for sink in dom_sinks:
             if sink in response_text:
-                results.append(f"[!] Potential DOM-Based XSS vulnerability: '{sink}' found in page source.")
+                results.append({
+                    "issue": f"Potential DOM-Based XSS vulnerability: `{sink}` found in page source.",
+                    "severity": "Medium"
+                })
+                found = True
     except requests.exceptions.RequestException:
-        return ["[!] Error: Unable to analyze JavaScript sources."]
+        return [{"issue": "Error: Unable to analyze JavaScript sources.", "severity": "Low"}]
 
     for payload in XSS_PAYLOADS:
         encoded_payload = urllib.parse.quote(payload)
@@ -85,9 +111,18 @@ def detect_dom_xss(url):
             response = requests.get(test_url, timeout=10)
             response_text = response.text.lower()
             if payload.lower() in response_text or urllib.parse.quote(payload).lower() in response_text:
-                results.append(f"[!] DOM-Based XSS detected with payload: {payload}")
+                results.append({
+                    "issue": f"DOM-Based XSS detected with payload: {payload}",
+                    "severity": "High"
+                })
+                found = True
         except requests.exceptions.RequestException:
             continue
-    if not results:
-        results.append("[+] No DOM-Based XSS detected.")
+
+    if not found:
+        results.append({
+            "issue": "No DOM-Based XSS detected.",
+            "severity": "Low"
+        })
+
     return results
