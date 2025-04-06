@@ -2,21 +2,29 @@
 <html>
 <head>
     <title>Web Application Vulnerability Scanner</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h2>Enter a Website URL to Scan</h2>
-    <form method="POST">
-        <input type="text" name="url" placeholder="Enter a website URL">
-        <button type="submit">Scan</button>
-    </form>
+    <div class="container">
+        <h2>Web Application Vulnerability Scanner</h2>
+        <form method="POST">
+            <input type="text" name="url" placeholder="Enter a website URL" required>
+            <select name="mode">
+                <option value="basic">Basic Scan</option>
+                <option value="deep">Deep Scan</option>
+            </select>
+            <button type="submit">Scan</button>
+        </form>
 
-    {% if results %}
-        <h3>Scan Results for {{ url }}</h3>
-        <ul>
-            {% for result in results %}
-                <li>{{ result }}</li>
-            {% endfor %}
-        </ul>
-    {% endif %}
+        {% if results %}
+            <h3>Scan Results for {{ url }}</h3>
+            <ul>
+                {% for result in results %}
+                    <li>{{ result }}</li>
+                {% endfor %}
+            </ul>
+            <a href="{{ url_for('download_report') }}">Download PDF Report</a>
+        {% endif %}
+    </div>
 </body>
 </html>
