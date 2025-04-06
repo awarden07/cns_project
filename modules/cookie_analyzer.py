@@ -3,14 +3,17 @@ import requests
 def analyze_cookies(url):
     """Analyzes HTTP cookies for security vulnerabilities."""
     results = []
-    
+
     try:
         session = requests.Session()
         response = session.get(url, timeout=5)
         cookies = response.cookies
 
         if not cookies:
-            results.append("[+] No cookies detected.")
+            results.append({
+                "issue": "No cookies detected.",
+                "severity": "Low"
+            })
             return results
 
         for cookie in cookies:
@@ -19,26 +22,35 @@ def analyze_cookies(url):
 
             # Secure flag check
             if not cookie.secure:
-                cookie_issues.append("Missing Secure flag (should be sent only over HTTPS)")
+                cookie_issues.append("Missing Secure flag")
 
             # HttpOnly flag check
             if "HttpOnly" not in cookie._rest:
-                cookie_issues.append("Missing HttpOnly flag (vulnerable to XSS)")
+                cookie_issues.append("Missing HttpOnly flag")
 
             # SameSite attribute check
             if "SameSite" not in cookie._rest:
-                cookie_issues.append("Missing SameSite attribute (vulnerable to CSRF)")
+                cookie_issues.append("Missing SameSite attribute")
 
             # Expiration check
             if not cookie.expires:
-                cookie_issues.append("No expiration set (session persists indefinitely)")
+                cookie_issues.append("No expiration set")
 
             if cookie_issues:
-                results.append(f"[!] Cookie '{cookie_name}' Issues: " + " | ".join(cookie_issues))
+                results.append({
+                    "issue": f"Cookie '{cookie_name}' has issues: " + ", ".join(cookie_issues),
+                    "severity": "Medium" if len(cookie_issues) <= 2 else "High"
+                })
             else:
-                results.append(f"[+] Cookie '{cookie_name}' is secure.")
+                results.append({
+                    "issue": f"Cookie '{cookie_name}' is secure.",
+                    "severity": "Low"
+                })
 
     except requests.exceptions.RequestException as e:
-        results.append(f"[!] Error analyzing cookies: {str(e)}")
+        results.append({
+            "issue": f"Error analyzing cookies: {str(e)}",
+            "severity": "Low"
+        })
 
     return results
