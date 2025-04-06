@@ -6,16 +6,16 @@ from modules.security_headers import check_security_headers
 from modules.cookie_analyzer import analyze_cookies
 from modules.ssl_tls_analyzer import check_ssl_tls
 from modules.heartbleed_scanner import check_heartbleed
-from modules.network_scanner import scan_open_ports
+from modules.network_scanner import network_scan
 from modules.report_generator import generate_pdf_report
 
 app = Flask(__name__)
 
-# Store the latest scan results globally for report generation
+# Global variable to store latest scan results
 latest_results = {}
 
-def run_scanners(url, results):
-    """Runs all security checks in parallel."""
+def run_scanners(url, results, mode):
+    """Runs all security checks in parallel. In 'deep' mode, includes extra tests."""
     threads = [
         threading.Thread(target=lambda: results.extend(detect_sqli(url))),
         threading.Thread(target=lambda: results.extend(detect_reflected_xss(url))),
@@ -25,9 +25,9 @@ def run_scanners(url, results):
         threading.Thread(target=lambda: results.extend(analyze_cookies(url))),
         threading.Thread(target=lambda: results.extend(check_ssl_tls(url))),
         threading.Thread(target=lambda: results.extend(check_heartbleed(url))),
-        threading.Thread(target=lambda: results.extend(scan_open_ports(url)))
+        threading.Thread(target=lambda: results.extend(network_scan(url, mode)))
     ]
-    
+
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -37,20 +37,18 @@ def run_scanners(url, results):
 def index():
     global latest_results
     results = []
+    url = ""
+    scan_mode = "basic"
 
     if request.method == "POST":
         url = request.form["url"].strip()
-
+        scan_mode = request.form.get("mode", "basic")
         if not url.startswith("http"):
-            url = "http://" + url  # Ensure valid URL format
+            url = "http://" + url
+        latest_results = {"url": url, "results": results, "mode": scan_mode}
+        run_scanners(url, results, scan_mode)
 
-        # Store results in a thread-safe way
-        latest_results = {"url": url, "results": results}
-
-        # Run scanners in parallel
-        run_scanners(url, results)
-
-    return render_template("index.html", url=latest_results.get("url"), results=latest_results.get("results"))
+    return render_template("index.html", url=latest_results.get("url"), results=latest_results.get("results"), mode=latest_results.get("mode", "basic"))
 
 @app.route("/download_report")
 def download_report():
