@@ -1,6 +1,6 @@
 from fpdf import FPDF
+import os
 
-# Example mapping for vulnerability severity and remediation recommendations
 REMEDIATION_MAPPING = {
     "SQL Injection": {
         "severity": "High",
@@ -36,14 +36,13 @@ REMEDIATION_MAPPING = {
     }
 }
 
-def map_vulnerability(result):
-    """Maps a vulnerability message to severity and remediation recommendation."""
-    lower_result = result.lower()
+def map_vulnerability(issue_text):
+    """Maps a vulnerability message to remediation recommendation."""
+    lower_issue = issue_text.lower()
     for key in REMEDIATION_MAPPING:
-        if key.lower() in lower_result:
-            mapping = REMEDIATION_MAPPING[key]
-            return f"Severity: {mapping['severity']}. Remediation: {mapping['recommendation']}"
-    return "Severity: Unknown. Remediation: Review manually."
+        if key.lower() in lower_issue:
+            return REMEDIATION_MAPPING[key]['recommendation']
+    return "Review manually."
 
 def generate_pdf_report(url, scan_results, filename="scan_report.pdf"):
     pdf = FPDF()
@@ -55,11 +54,20 @@ def generate_pdf_report(url, scan_results, filename="scan_report.pdf"):
 
     pdf.set_font("Arial", "", 12)
     for result in scan_results:
-        remediation = map_vulnerability(result)
-        pdf.multi_cell(0, 10, f"{result}\n{remediation}\n")
+        # Handle both old (string) and new (dict) format just in case
+        if isinstance(result, dict):
+            issue = result.get("issue", "Unknown issue")
+            severity = result.get("severity", "Unknown")
+        else:
+            issue = str(result)
+            severity = "Unknown"
+
+        recommendation = map_vulnerability(issue)
+        pdf.multi_cell(0, 10, f"Issue: {issue}\nSeverity: {severity}\nRemediation: {recommendation}\n")
         pdf.ln(2)
 
-    # Save report to the "report" folder
+    # Ensure the reports directory exists
+    os.makedirs("reports", exist_ok=True)
     final_filename = f"reports/{filename}"
     pdf.output(final_filename)
     return final_filename
