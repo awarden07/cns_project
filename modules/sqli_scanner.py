@@ -2,7 +2,6 @@ import requests
 import time
 import urllib.parse
 
-# SQL Injection Payloads for fingerprinting
 DB_FINGERPRINT_PAYLOADS = {
     "MySQL": "' OR 1=1 --",
     "PostgreSQL": "' OR 1=1; --",
@@ -11,7 +10,6 @@ DB_FINGERPRINT_PAYLOADS = {
     "Oracle": "' OR 1=1 --"
 }
 
-# Time-based SQL Injection Payloads
 TIME_DELAY_PAYLOADS = {
     "MySQL": "' OR SLEEP(5) --",
     "PostgreSQL": "' OR pg_sleep(5) --",
@@ -34,7 +32,6 @@ SQLI_TEST_PAYLOADS = [
 def fingerprint_database(url):
     """Attempts to identify the database by testing for SQL errors and time delays."""
     detected_db = "Unknown"
-    # Check error-based fingerprinting
     for db, payload in DB_FINGERPRINT_PAYLOADS.items():
         encoded_payload = urllib.parse.quote(payload)
         test_url = f"{url}?query={encoded_payload}"
@@ -42,14 +39,10 @@ def fingerprint_database(url):
             response = requests.get(test_url, timeout=10)
             for keyword in ERROR_KEYWORDS[db]:
                 if keyword.lower() in response.text.lower():
-                    detected_db = db
-                    break
-            if detected_db != "Unknown":
-                return detected_db
+                    return db
         except requests.exceptions.RequestException:
             continue
 
-    # Check time-based SQLi
     for db, payload in TIME_DELAY_PAYLOADS.items():
         encoded_payload = urllib.parse.quote(payload)
         test_url = f"{url}?query={encoded_payload}"
@@ -73,9 +66,13 @@ def detect_sqli(url):
         normal_length = len(normal_response.text)
         normal_headers = normal_response.headers
     except requests.exceptions.RequestException as e:
-        return [f"[!] Error connecting to target: {str(e)}"]
+        return [{
+            "issue": f"Error connecting to target: {str(e)}",
+            "severity": "Low"
+        }]
 
-    # Test for content-based SQL injection
+    found_sqli = False
+
     for payload in SQLI_TEST_PAYLOADS:
         encoded_payload = urllib.parse.quote(payload)
         test_url = f"{url}?query={encoded_payload}"
@@ -84,12 +81,17 @@ def detect_sqli(url):
             test_text = response.text.lower()
             test_length = len(response.text)
             test_headers = response.headers
+
             if test_text != normal_text or test_length != normal_length or test_headers != normal_headers:
-                results.append(f"[!] Possible SQL Injection detected with payload: {payload}")
+                results.append({
+                    "issue": f"Possible SQL Injection detected with payload: {payload}",
+                    "severity": "High"
+                })
+                found_sqli = True
         except requests.exceptions.RequestException:
             continue
 
-    # Test for time-based SQL injection
+    # Test for time-based SQLi
     db_type = fingerprint_database(url)
     if db_type != "Unknown":
         payload = TIME_DELAY_PAYLOADS[db_type]
@@ -100,10 +102,21 @@ def detect_sqli(url):
             requests.get(test_url, timeout=15)
             elapsed_time = time.time() - start_time
             if elapsed_time > 4.5:
-                results.append(f"[!] Time-based SQL Injection detected using {db_type}.")
+                results.append({
+                    "issue": f"Time-based SQL Injection detected using {db_type}.",
+                    "severity": "High"
+                })
+                found_sqli = True
         except requests.exceptions.RequestException as e:
-            results.append(f"[!] SQLi time-based test failed: {str(e)}")
+            results.append({
+                "issue": f"SQLi time-based test failed: {str(e)}",
+                "severity": "Low"
+            })
 
-    if not results:
-        results.append("[+] No SQL Injection detected.")
+    if not found_sqli:
+        results.append({
+            "issue": "No SQL Injection detected.",
+            "severity": "Low"
+        })
+
     return results
