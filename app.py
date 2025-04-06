@@ -10,22 +10,25 @@ from modules.network_scanner import network_scan
 from modules.report_generator import generate_pdf_report
 
 app = Flask(__name__)
-
-# Global variable to store latest scan results
 latest_results = {}
 
 def run_scanners(url, results, mode):
-    """Runs all security checks in parallel. In 'deep' mode, includes extra tests."""
+    def safe_extend(func):
+        try:
+            results.extend(func(url))
+        except Exception as e:
+            results.append({"issue": f"{func.__name__} failed: {e}", "severity": "Low"})
+
     threads = [
-        threading.Thread(target=lambda: results.extend(detect_sqli(url))),
-        threading.Thread(target=lambda: results.extend(detect_reflected_xss(url))),
-        threading.Thread(target=lambda: results.extend(detect_stored_xss(url))),
-        threading.Thread(target=lambda: results.extend(detect_dom_xss(url))),
-        threading.Thread(target=lambda: results.extend(check_security_headers(url))),
-        threading.Thread(target=lambda: results.extend(analyze_cookies(url))),
-        threading.Thread(target=lambda: results.extend(check_ssl_tls(url))),
-        threading.Thread(target=lambda: results.extend(check_heartbleed(url))),
-        threading.Thread(target=lambda: results.extend(network_scan(url, mode)))
+        threading.Thread(target=lambda: safe_extend(detect_sqli)),
+        threading.Thread(target=lambda: safe_extend(detect_reflected_xss)),
+        threading.Thread(target=lambda: safe_extend(detect_stored_xss)),
+        threading.Thread(target=lambda: safe_extend(detect_dom_xss)),
+        threading.Thread(target=lambda: safe_extend(check_security_headers)),
+        threading.Thread(target=lambda: safe_extend(analyze_cookies)),
+        threading.Thread(target=lambda: safe_extend(check_ssl_tls)),
+        threading.Thread(target=lambda: safe_extend(check_heartbleed)),
+        threading.Thread(target=lambda: safe_extend(lambda u: network_scan(u, mode)))
     ]
 
     for thread in threads:
