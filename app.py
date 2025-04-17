@@ -8,56 +8,113 @@ from modules.ssl_tls_analyzer import check_ssl_tls
 from modules.heartbleed_scanner import check_heartbleed
 from modules.network_scanner import network_scan
 from modules.report_generator import generate_pdf_report
+import time
+import urllib.parse
 
 app = Flask(__name__)
 latest_results = {}
 
 def run_scanners(url, results, mode):
-    def safe_extend(func):
-        try:
-            results.extend(func(url))
-        except Exception as e:
-            results.append({"issue": f"{func.__name__} failed: {e}", "severity": "Low"})
-
-    threads = [
-        threading.Thread(target=lambda: safe_extend(detect_sqli)),
-        threading.Thread(target=lambda: safe_extend(detect_reflected_xss)),
-        threading.Thread(target=lambda: safe_extend(detect_stored_xss)),
-        threading.Thread(target=lambda: safe_extend(detect_dom_xss)),
-        threading.Thread(target=lambda: safe_extend(check_security_headers)),
-        threading.Thread(target=lambda: safe_extend(analyze_cookies)),
-        threading.Thread(target=lambda: safe_extend(check_ssl_tls)),
-        threading.Thread(target=lambda: safe_extend(check_heartbleed)),
-        threading.Thread(target=lambda: safe_extend(lambda u: network_scan(u, mode)))
-    ]
-
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    """Run all scanners and organize results by category"""
+    # Initialize categories as per proposal
+    categories = {
+        "sql_injection": {"name": "SQL Injection Vulnerabilities", "results": []},
+        "xss": {"name": "Cross-Site Scripting (XSS)", "results": []},
+        "security_headers": {"name": "Security Header Analysis", "results": []},
+        "ssl_tls": {"name": "SSL/TLS Configuration Analysis", "results": []},
+        "network": {"name": "Network Security Analysis", "results": []}
+    }
+    
+    # Run SQL Injection scans
+    try:
+        categories["sql_injection"]["results"].extend(detect_sqli(url))
+    except Exception as e:
+        categories["sql_injection"]["results"].append({"issue": f"SQL Injection scan failed: {e}", "severity": "Low"})
+    
+    # Run XSS scans
+    try:
+        categories["xss"]["results"].extend(detect_reflected_xss(url))
+        categories["xss"]["results"].extend(detect_stored_xss(url))
+        categories["xss"]["results"].extend(detect_dom_xss(url))
+    except Exception as e:
+        categories["xss"]["results"].append({"issue": f"XSS scan failed: {e}", "severity": "Low"})
+    
+    # Run Security Headers scans
+    try:
+        categories["security_headers"]["results"].extend(check_security_headers(url))
+        categories["security_headers"]["results"].extend(analyze_cookies(url))
+    except Exception as e:
+        categories["security_headers"]["results"].append({"issue": f"Security headers scan failed: {e}", "severity": "Low"})
+    
+    # Run SSL/TLS scans
+    try:
+        categories["ssl_tls"]["results"].extend(check_ssl_tls(url))
+        categories["ssl_tls"]["results"].extend(check_heartbleed(urllib.parse.urlparse(url).netloc))
+    except Exception as e:
+        categories["ssl_tls"]["results"].append({"issue": f"SSL/TLS scan failed: {e}", "severity": "Low"})
+    
+    # Run Network scans
+    try:
+        categories["network"]["results"].extend(network_scan(url, mode))
+    except Exception as e:
+        categories["network"]["results"].append({"issue": f"Network scan failed: {e}", "severity": "Low"})
+    
+    # Combine all results for PDF report
+    all_results = []
+    for category in categories.values():
+        all_results.extend(category["results"])
+    
+    return categories, all_results
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     global latest_results
-    results = []
+    categories = {}
+    all_results = []
     url = ""
     scan_mode = "basic"
+    scan_time = None
 
     if request.method == "POST":
         url = request.form["url"].strip()
         scan_mode = request.form.get("mode", "basic")
-        if not url.startswith("http"):
+        if not url.startswith(("http://", "https://")):
             url = "http://" + url
-        latest_results = {"url": url, "results": results, "mode": scan_mode}
-        run_scanners(url, results, scan_mode)
+            
+        # Record scan start time
+        start_time = time.time()
+        
+        # Run scans
+        categories, all_results = run_scanners(url, [], scan_mode)
+        
+        # Calculate scan duration
+        scan_time = round(time.time() - start_time, 2)
+        
+        # Store results for PDF generation
+        latest_results = {
+            "url": url, 
+            "results": all_results, 
+            "mode": scan_mode,
+            "scan_time": scan_time
+        }
 
-    return render_template("index.html", url=latest_results.get("url"), results=latest_results.get("results"), mode=latest_results.get("mode", "basic"))
+    return render_template(
+        "index.html", 
+        url=url, 
+        categories=categories, 
+        scan_time=scan_time,
+        mode=scan_mode
+    )
 
 @app.route("/download_report")
 def download_report():
     global latest_results
     if latest_results:
-        filename = generate_pdf_report(latest_results["url"], latest_results["results"])
+        filename = generate_pdf_report(
+            latest_results["url"], 
+            latest_results["results"],
+            f"scan_report_{urllib.parse.quote(latest_results['url'], safe='')}.pdf"
+        )
         return send_file(filename, as_attachment=True)
     return "No scan results available.", 404
 
