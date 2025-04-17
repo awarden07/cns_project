@@ -7,6 +7,7 @@ from modules.cookie_analyzer import analyze_cookies
 from modules.ssl_tls_analyzer import check_ssl_tls
 from modules.heartbleed_scanner import check_heartbleed
 from modules.network_scanner import network_scan
+from modules.directory_traversal import test_directory_traversal  # Import the function
 from modules.report_generator import generate_pdf_report
 import time
 import urllib.parse
@@ -14,9 +15,17 @@ import urllib.parse
 app = Flask(__name__)
 latest_results = {}
 
-def run_scanners(url, results, mode):
+def sanitize_path(path):
+    # Remove any path traversal sequences
+    clean_path = re.sub(r'\.\./', '', path)
+    # Ensure the path starts within the allowed directory
+    if not clean_path.startswith('/allowed/directory/'):
+        clean_path = '/allowed/directory/' + clean_path
+    return clean_path
+
+def run_scanners(url, mode):
     """Run all scanners and organize results by category"""
-    # Initialize categories as per proposal
+    # Initialize categories
     categories = {
         "sql_injection": {"name": "SQL Injection Vulnerabilities", "results": []},
         "xss": {"name": "Cross-Site Scripting (XSS)", "results": []},
@@ -49,13 +58,19 @@ def run_scanners(url, results, mode):
     # Run SSL/TLS scans
     try:
         categories["ssl_tls"]["results"].extend(check_ssl_tls(url))
-        categories["ssl_tls"]["results"].extend(check_heartbleed(urllib.parse.urlparse(url).netloc))
+        try:
+            host = urllib.parse.urlparse(url).netloc
+            categories["ssl_tls"]["results"].extend(check_heartbleed(host))
+        except Exception as e:
+            categories["ssl_tls"]["results"].append({"issue": f"Heartbleed scan failed: {e}", "severity": "Low"})
     except Exception as e:
         categories["ssl_tls"]["results"].append({"issue": f"SSL/TLS scan failed: {e}", "severity": "Low"})
     
     # Run Network scans
     try:
         categories["network"]["results"].extend(network_scan(url, mode))
+        if mode.lower() == "deep":
+            categories["network"]["results"].extend(test_directory_traversal(url))
     except Exception as e:
         categories["network"]["results"].append({"issue": f"Network scan failed: {e}", "severity": "Low"})
     
@@ -85,7 +100,7 @@ def index():
         start_time = time.time()
         
         # Run scans
-        categories, all_results = run_scanners(url, [], scan_mode)
+        categories, all_results = run_scanners(url, scan_mode)
         
         # Calculate scan duration
         scan_time = round(time.time() - start_time, 2)
