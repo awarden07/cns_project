@@ -115,8 +115,4 @@ def network_scan(url, mode="basic"):
             "severity": "Low"
         })
 
-    # Directory traversal if deep mode
-    if mode.lower() == "deep":
-        results.extend(test_directory_traversal(url))
-
     return results
