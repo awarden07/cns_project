@@ -1,26 +1,125 @@
 import ssl
 import socket
 import datetime
-from urllib.parse import urlparse
+import urllib.parse
 
 def extract_hostname(url):
     """Extracts the hostname from a given URL."""
-    parsed_url = urlparse(url)
+    parsed_url = urllib.parse.urlparse(url)
     return parsed_url.hostname
 
+def check_pfs_support(host, port=443):
+    """Check for Perfect Forward Secrecy support."""
+    results = []
+    pfs_detected = False
+    pfs_cipher = None
+    
+    try:
+        # Try connecting with explicit PFS cipher preference
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        try:
+            # Try to set PFS ciphers only
+            context.set_ciphers('ECDHE:DHE')
+            with context.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host) as s:
+                s.settimeout(5)
+                s.connect((host, port))
+                cipher = s.cipher()
+                if cipher:
+                    cipher_name = cipher[0]
+                    if 'DHE' in cipher_name or 'ECDHE' in cipher_name:
+                        pfs_detected = True
+                        pfs_cipher = cipher_name
+        except (ssl.SSLError, socket.error):
+            # The explicit cipher preference might fail, try default context
+            pass
+            
+        if not pfs_detected:
+            # Try with default context
+            context = ssl.create_default_context()
+            with context.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host) as s:
+                s.settimeout(5)
+                s.connect((host, port))
+                cipher = s.cipher()
+                if cipher:
+                    cipher_name = cipher[0]
+                    if 'DHE' in cipher_name or 'ECDHE' in cipher_name:
+                        pfs_detected = True
+                        pfs_cipher = cipher_name
+        
+        # Try individual ciphers to get a more complete picture
+        if not pfs_detected:
+            test_ciphers = [
+                'ECDHE-RSA-AES256-GCM-SHA384',
+                'ECDHE-RSA-AES128-GCM-SHA256',
+                'ECDHE-RSA-CHACHA20-POLY1305',
+                'DHE-RSA-AES256-GCM-SHA384',
+                'DHE-RSA-AES128-GCM-SHA256',
+                'ECDHE-ECDSA-AES256-GCM-SHA384',
+                'ECDHE-ECDSA-AES128-GCM-SHA256'
+            ]
+            
+            for cipher_suite in test_ciphers:
+                try:
+                    context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+                    context.set_ciphers(cipher_suite)
+                    with context.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host) as s:
+                        s.settimeout(5)
+                        s.connect((host, port))
+                        actual_cipher = s.cipher()[0]
+                        if 'ECDHE' in actual_cipher or 'DHE' in actual_cipher:
+                            pfs_detected = True
+                            pfs_cipher = actual_cipher
+                            break
+                except (ssl.SSLError, socket.error):
+                    continue
+        
+        # Generate results based on findings
+        if pfs_detected:
+            cipher_details = f" using cipher: {pfs_cipher}" if pfs_cipher else ""
+            key_exchange = "ECDHE" if pfs_cipher and "ECDHE" in pfs_cipher else "DHE" if pfs_cipher and "DHE" in pfs_cipher else "Unknown"
+            cipher_strength = "strong" if pfs_cipher and ("GCM" in pfs_cipher or "POLY1305" in pfs_cipher) else "acceptable"
+            
+            results.append({
+                "issue": f"Perfect Forward Secrecy (PFS) is supported with {key_exchange} key exchange{cipher_details}",
+                "severity": "Low"
+            })
+            
+            if cipher_strength == "strong":
+                results.append({
+                    "issue": "Server prioritizes modern AEAD ciphers with PFS (excellent security)",
+                    "severity": "Low"
+                })
+        else:
+            results.append({
+                "issue": "Perfect Forward Secrecy (PFS) is NOT supported. Server does not prioritize ECDHE or DHE cipher suites.",
+                "severity": "High"
+            })
+    
+    except Exception as e:
+        results.append({
+            "issue": f"Error testing Perfect Forward Secrecy: {str(e)}",
+            "severity": "Low"
+        })
+    
+    return results
+
 def check_ssl_tls(url):
-    """Checks SSL/TLS configurations for vulnerabilities with expanded checks."""
+    """Enhanced SSL/TLS analysis with improved PFS verification."""
     results = []
     host = extract_hostname(url)
-
+    
     try:
-        # First check: Basic SSL/TLS configuration
+        # Basic SSL/TLS checks
         context = ssl.create_default_context()
         conn = context.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host)
         conn.settimeout(5)
         conn.connect((host, 443))
+        
+        # Get certificate details
         cert = conn.getpeercert()
-
+        protocol = conn.version()
+        cipher = conn.cipher()
+        
         # Certificate Expiry Check
         expiry = datetime.datetime.strptime(cert['notAfter'], "%b %d %H:%M:%S %Y %Z")
         if expiry < datetime.datetime.utcnow():
@@ -40,29 +139,28 @@ def check_ssl_tls(url):
                     "issue": f"SSL Certificate valid until: {expiry}",
                     "severity": "Low"
                 })
-
-        # Weak Cipher Check - expanded list
-        weak_ciphers = ["RC4", "MD5", "SHA1", "DES", "3DES", "EXPORT"]
-        for cipher in weak_ciphers:
-            if cipher in str(conn.cipher()):
-                results.append({
-                    "issue": f"Weak Cipher Detected: {cipher}",
-                    "severity": "High"
-                })
-
-        # SSL/TLS Version Check
-        negotiated_protocol = conn.version()
-        if negotiated_protocol in ["SSLv2", "SSLv3", "TLSv1", "TLSv1.1"]:
+        
+        # Protocol version check
+        if protocol in ["SSLv2", "SSLv3", "TLSv1", "TLSv1.1"]:
             results.append({
-                "issue": f"Weak Protocol Detected: {negotiated_protocol}",
+                "issue": f"Weak Protocol Detected: {protocol}",
                 "severity": "High"
             })
         else:
             results.append({
-                "issue": f"Secure Protocol in use: {negotiated_protocol}",
+                "issue": f"Secure Protocol in use: {protocol}",
                 "severity": "Low"
             })
-
+            
+        # Cipher check
+        weak_ciphers = ["RC4", "MD5", "SHA1", "DES", "3DES", "EXPORT", "NULL"]
+        for weak in weak_ciphers:
+            if weak in str(cipher):
+                results.append({
+                    "issue": f"Weak Cipher Detected: {weak}",
+                    "severity": "High"
+                })
+                
         # Check for certificate key strength
         if 'subjectPublicKey' in cert:
             key_length = len(cert['subjectPublicKey']) * 8  # Convert bytes to bits
@@ -76,34 +174,6 @@ def check_ssl_tls(url):
                     "issue": f"Strong certificate key length: {key_length} bits",
                     "severity": "Low"
                 })
-
-        # Perfect Forward Secrecy (PFS) Check
-        cipher_info = conn.cipher()
-        cipher_name = cipher_info[0]
-        
-        # PFS detection logic
-        if "DHE" in cipher_name or "ECDHE" in cipher_name:
-            results.append({
-                "issue": f"Perfect Forward Secrecy (PFS) is supported with cipher: {cipher_name}",
-                "severity": "Low"
-            })
-        else:
-            # Try explicitly with PFS ciphers
-            try:
-                pfs_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
-                pfs_context.set_ciphers('ECDHE:DHE')
-                with pfs_context.wrap_socket(socket.socket(socket.AF_INET), server_hostname=host) as s:
-                    s.connect((host, 443))
-                    pfs_cipher = s.cipher()[0]
-                    results.append({
-                        "issue": f"Perfect Forward Secrecy (PFS) is supported with cipher: {pfs_cipher}",
-                        "severity": "Low"
-                    })
-            except:
-                results.append({
-                    "issue": f"No Perfect Forward Secrecy (PFS). Cipher used: {cipher_name}",
-                    "severity": "Medium"
-                })
         
         # OCSP Stapling check
         if 'OCSP' in cert.get('extensions', []):
@@ -116,13 +186,18 @@ def check_ssl_tls(url):
                 "issue": "OCSP Stapling not detected",
                 "severity": "Medium"
             })
-
+        
+        # Close connection
         conn.close()
-
+        
+        # Check for Perfect Forward Secrecy
+        pfs_results = check_pfs_support(host)
+        results.extend(pfs_results)
+        
     except Exception as e:
         results.append({
             "issue": f"Error testing SSL/TLS: {str(e)}",
             "severity": "Low"
         })
-
+    
     return results
