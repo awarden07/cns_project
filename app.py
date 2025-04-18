@@ -6,7 +6,7 @@ from modules.security_headers import check_security_headers
 from modules.cookie_analyzer import analyze_cookies
 from modules.ssl_tls_analyzer import check_ssl_tls
 from modules.heartbleed_scanner import check_heartbleed
-from modules.network_scanner import network_scan
+from modules.network_scanner import network_scan, test_directory_traversal 
 from modules.report_generator import generate_pdf_report
 import time
 import urllib.parse

@@ -183,9 +183,5 @@ def network_scan(url, mode="basic"):
             "issue": "Could not determine allowed HTTP methods.",
             "severity": "Low"
         })
-
-    # Directory traversal if deep mode
-    if mode.lower() == "deep":
-        results.extend(test_directory_traversal(url))
-
+        
     return results
